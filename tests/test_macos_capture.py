@@ -177,7 +177,16 @@ def test_decode_failure_invalidates_the_previous_input_geometry(capture, native_
 
 
 def test_geometry_changing_during_capture_rejects_the_frame(capture, native_frame):
-    capture._geometry_matches.side_effect = [True, False]
+    capture._geometry_matches.side_effect = [True, False, True, False]
     with pytest.raises(CaptureException):
         capture._capture_frame()
     assert capture._last_frame_geometry is None
+    capture.refresh_window.assert_called_once_with()
+
+
+def test_window_movement_retries_with_fresh_geometry(capture, native_frame):
+    capture._geometry_matches.side_effect = [True, False, True, True]
+    frame = capture._capture_frame()
+    assert np.array_equal(frame, native_frame.frame)
+    capture.refresh_window.assert_called_once_with()
+    assert capture._last_frame_geometry == capture._geometry()

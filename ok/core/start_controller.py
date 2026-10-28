@@ -1,5 +1,6 @@
 import time
 import sys
+import threading
 
 from ok import Handler, og
 from ok import Logger
@@ -46,6 +47,11 @@ class StartController:
     def start(self, task=None, exit_after=False):
         self.starting = True
         try:
+            if self.config.get('macos') and getattr(og.device_manager, '_macos_keyboard', None) is None:
+                if threading.current_thread() is not threading.main_thread():
+                    raise RuntimeError('Please initialize macOS keyboard from the application UI first')
+                from pynput.keyboard import Controller
+                og.device_manager._macos_keyboard = Controller()
             self.handler.post(lambda: self.do_start(task, exit_after))
         except Exception:
             self.starting = False
@@ -78,6 +84,8 @@ class StartController:
 
             if task and task.enabled and task.paused:
                 logger.info(f"resume paused task {task}")
+                if self.config.get('macos'):
+                    og.device_manager.capture_method.activate()
                 if exit_after:
                     task.exit_after_task = True
                     communicate.task.emit(task)
@@ -89,6 +97,8 @@ class StartController:
                 logger.info(f"queue task while another task is running {task}")
                 if exit_after:
                     task.exit_after_task = True
+                if og.executor.paused and self.config.get('macos'):
+                    og.device_manager.capture_method.activate()
                 self._mark_task_enabled(task)
                 if og.executor.paused:
                     og.executor.start()
@@ -115,6 +125,11 @@ class StartController:
                 logger.info('windows.start_exe is False, skip start_device')
             self.check_auto_hdr()
             self.check_gpu_driver_post_processing()
+
+            if self.config.get('macos'):
+                # Establish game focus while still paused, before the input
+                # monitor can cancel the newly started executor.
+                og.device_manager.capture_method.activate()
 
             def add_task_to_enable(enable_task):
                 if enable_task and enable_task not in tasks_to_enable:

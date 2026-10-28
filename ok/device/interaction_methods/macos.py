@@ -32,6 +32,8 @@ class MacOSInteraction(PynputInteraction):
     @property
     def keyboard(self):
         if self._keyboard is None:
+            if threading.current_thread() is not threading.main_thread():
+                raise RuntimeError('macOS keyboard must be initialized from the application UI before starting')
             from pynput.keyboard import Controller
             self._keyboard = Controller()
         return self._keyboard

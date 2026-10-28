@@ -183,7 +183,7 @@ class MacOSCaptureMethod(BaseCaptureMethod):
         if not np.any(frame):
             raise _FrameNotReady('macOS screenshot is entirely black; waiting for drawable content')
         if not self._geometry_matches():
-            raise CaptureException('Game window moved during capture; retry with a new frame')
+            raise _FrameNotReady('Game window moved during capture; retry with a new frame')
         self._size = (frame.shape[1], frame.shape[0])
         self._last_frame_geometry = self._geometry()
         return frame

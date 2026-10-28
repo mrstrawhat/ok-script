@@ -314,3 +314,28 @@ app.exec()
         child.wait(timeout=5)
         if previous and previous.bundleIdentifier() != 'com.kurogame.mingchao':
             previous.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps)
+
+
+@pytest.mark.parametrize('path', ['start', 'resume', 'queue'])
+def test_mac_focus_precedes_each_task_start_path(path):
+    """The focus watchdog must never see a task resumed behind the tool UI."""
+    events = []
+    controller = StartController.__new__(StartController)
+    controller.config = {'macos': {'bundle_id': 'test.game'}}
+    controller.start_timeout = 10
+    controller.start_exe = False
+    controller.check_auto_hdr = Mock()
+    controller.check_gpu_driver_post_processing = Mock()
+    controller._mark_task_enabled = lambda task: events.append('enable')
+    task = SimpleNamespace(enabled=path == 'resume', paused=path == 'resume',
+                           unpause=lambda: events.append('unpause'))
+    executor = SimpleNamespace(exclusive_owner=None, paused=True,
+        current_task=object() if path == 'queue' else None,
+        get_all_tasks=lambda: [], start=lambda: events.append('start'))
+    device = SimpleNamespace(do_refresh=Mock(), capture_method=SimpleNamespace(
+        activate=lambda: events.append('activate')))
+    with patch('ok.core.start_controller.og', SimpleNamespace(executor=executor, device_manager=device)), \
+         patch('ok.util.macos.permission_error', return_value=None), \
+         patch('ok.core.start_controller.communicate.starting_emulator.emit'):
+        assert controller._do_start(task)
+    assert events == (['activate', 'unpause'] if path == 'resume' else ['activate', 'enable', 'start'])

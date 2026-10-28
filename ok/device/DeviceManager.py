@@ -747,10 +747,13 @@ class DeviceManager:
                         self.interaction.on_destroy()
                     self.interaction = MacOSInteraction(
                         self.capture_method, allowed=self._macos_input_allowed,
+                        keyboard_controller=getattr(self, '_macos_keyboard', None),
                         on_focus_lost=self._macos_focus_lost)
                 else:
                     self.interaction.capture = self.capture_method
                     self.interaction.hwnd_window = self.capture_method
+                    if getattr(self, '_macos_keyboard', None) is not None:
+                        self.interaction._keyboard = self._macos_keyboard
                 preferred.update(resolution=f'{self.width}x{self.height}', width=self.width, height=self.height)
         elif preferred['device'] == 'windows':
             title = self.windows_capture_config.get('title')
