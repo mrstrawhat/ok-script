@@ -230,12 +230,16 @@ class TaskExecutor:
             logging.getLogger('ppocr').setLevel(logging.ERROR)
             config_logger(self.config)
         elif lib == 'dgocr':
+            if sys.platform != 'win32':
+                config_params['use_dml'] = False
             if config_params.get('use_dml', True):
                 config_params['use_dml'] = True
             from dgocr import DGOCR
             ocr_lib = DGOCR(**config_params)
         elif lib == 'onnxocr':
             from onnxocr.onnx_paddleocr import ONNXPaddleOcr
+            if sys.platform == 'darwin':
+                config_params.update(use_npu=False, use_openvino=False)
             logger.info(f'init onnxocr {config_params}')
             ocr_lib = ONNXPaddleOcr(use_angle_cls=False,
                                     logger=logger,

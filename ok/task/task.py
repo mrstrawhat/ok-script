@@ -1372,7 +1372,8 @@ class BaseTask(OCR):
         if self.executor.device_manager.hwnd_window:
             return self.executor.device_manager.hwnd_window.hwnd_title
         else:
-            return ""
+            device = self.executor.device_manager.get_preferred_device() or {}
+            return device.get('nick', '')
 
     def run(self):
         pass
