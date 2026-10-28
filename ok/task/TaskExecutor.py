@@ -834,12 +834,7 @@ class TaskExecutor:
                     task.disable()
                     communicate.task_done.emit(task)
                     if task.exit_after_task or task.config.get('Exit After Task'):
-                        logger.info('Successfully Executed Task, Exiting Game and App!')
-                        alert_info('Successfully Executed Task, Exiting Game and App!')
-                        time.sleep(5)
-                        self.device_manager.stop_hwnd()
-                        time.sleep(5)
-                        communicate.quit.emit()
+                        self.exit_after_completed_task()
                 task.running = False
                 self.current_task = None
                 if not is_trigger_task:
@@ -885,6 +880,22 @@ class TaskExecutor:
                 if not is_trigger_task:
                     prevent_sleeping(False)
         self.destroy()
+
+    def exit_after_completed_task(self):
+        self.release_input()
+        logger.info('Task completed, requesting game and app exit')
+        device = self.device_manager.get_preferred_device() or {}
+        if device.get('device') == 'macos':
+            # stop_hwnd waits for normal Mac termination and raises on refusal
+            # or timeout. Keep the tool open to show that failure.
+            self.device_manager.stop_hwnd()
+            alert_info('Successfully Executed Task, Exiting Game and App!')
+        else:
+            alert_info('Successfully Executed Task, Exiting Game and App!')
+            time.sleep(5)
+            self.device_manager.stop_hwnd()
+            time.sleep(5)
+        communicate.quit.emit()
 
     def stop(self):
         logger.info('stop')

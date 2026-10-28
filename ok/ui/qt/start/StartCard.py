@@ -140,6 +140,12 @@ class StartCard(SettingCard):
             self.rebind_hotkey(new_hotkey)
             self.current_hotkey = new_hotkey
             self.hotkey_changed.emit()
+        elif sys.platform == 'darwin' and self.hotkey_listener is not None and not self.hotkey_listener.is_alive():
+            self.stop_native_hotkey()
+            if self.qt_shortcut is not None:
+                self.qt_shortcut.setEnabled(True)
+            self.start_button.setToolTip(self.tr('Shortcut works while this application is active.'))
+            logger.warning('Global shortcut listener stopped; using application shortcut')
 
         if sys.platform == 'win32':
             msg = wintypes.MSG()
@@ -154,6 +160,7 @@ class StartCard(SettingCard):
     def rebind_hotkey(self, hotkey):
         if sys.platform != 'win32':
             self.stop_native_hotkey()
+            self.start_button.setToolTip(self.tr('Shortcut works while this application is active.'))
             if self.qt_shortcut is not None:
                 self.qt_shortcut.setEnabled(False)
                 self.qt_shortcut.deleteLater()
@@ -166,11 +173,10 @@ class StartCard(SettingCard):
                 from ok.util.macos import permission_status
                 if permission_status()['listen_events']:
                     try:
-                        from pynput.keyboard import GlobalHotKeys
-                        self.hotkey_listener = GlobalHotKeys({
-                            f'<{hotkey.lower()}>': self.hotkey_pressed.emit})
+                        from ok.util.macos import FunctionHotkey
+                        self.hotkey_listener = FunctionHotkey(hotkey, self.hotkey_pressed.emit)
                         self.hotkey_listener.start()
-                        # Prevent the local and global handlers from toggling twice.
+                        # The native tap also sees this app's keys.
                         self.qt_shortcut.setEnabled(False)
                         self.start_button.setToolTip(self.tr('Global shortcut; losing game focus also releases held input.'))
                     except Exception as error:
@@ -188,5 +194,9 @@ class StartCard(SettingCard):
 
     def stop_native_hotkey(self):
         if self.hotkey_listener is not None:
-            self.hotkey_listener.stop()
+            listener = self.hotkey_listener
             self.hotkey_listener = None
+            try:
+                listener.stop()
+            except Exception as error:
+                logger.error('Global shortcut listener cleanup failed', error)

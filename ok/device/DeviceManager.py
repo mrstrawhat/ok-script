@@ -133,6 +133,14 @@ class DeviceManager:
         logger.info('__init__ end')
 
     def stop_hwnd(self):
+        preferred = self.get_preferred_device() or {}
+        if preferred.get('device') == 'macos':
+            from ok.util.macos import quit_application
+            if self.interaction is not None:
+                self.interaction.release_all()
+            quit_application(preferred['address'], preferred.get('pid'),
+                             timeout=(self.macos_capture_config or {}).get('quit_timeout', 15))
+            return
         if self.hwnd_window:
             logger.info(f'stop_hwnd {self.hwnd_window.exe_full_path}')
             if self.hwnd_window.exe_full_path:
