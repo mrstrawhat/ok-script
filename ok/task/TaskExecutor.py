@@ -783,6 +783,7 @@ class TaskExecutor:
         """
         if not is_trigger_task and self.interaction is not None:
             self.interaction.on_run()
+            self.reset_scene(check_enabled=False)
 
     def execute(self):
         logger.info(f"start execute")
@@ -880,6 +881,8 @@ class TaskExecutor:
                 communicate.task.emit(None)
             finally:
                 self.release_input()
+                if not is_trigger_task:
+                    prevent_sleeping(False)
         self.destroy()
 
     def stop(self):

@@ -222,6 +222,8 @@ class MacOSInteraction(PynputInteraction):
         foreground = self._focus_ok()
         if not foreground:
             self.release_all()
+            if self._allowed():
+                self._on_focus_lost()
         return foreground
 
     def on_destroy(self):

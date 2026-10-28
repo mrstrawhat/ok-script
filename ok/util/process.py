@@ -766,10 +766,30 @@ def create_shortcut(exe_path=None, shortcut_name_post=None, description=None, ta
     return shortcut_path
 
 
+_macos_caffeinate = None
+_macos_caffeinate_lock = threading.Lock()
+
+
 def prevent_sleeping(yes=True):
     # Prevent the system from sleeping
     if sys.platform == 'win32':
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000002 if yes else 0x80000000)
+    elif sys.platform == 'darwin':
+        global _macos_caffeinate
+        with _macos_caffeinate_lock:
+            if yes:
+                if _macos_caffeinate is None or _macos_caffeinate.poll() is not None:
+                    _macos_caffeinate = subprocess.Popen(
+                        ['/usr/bin/caffeinate', '-di', '-w', str(os.getpid())],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif _macos_caffeinate is not None:
+                _macos_caffeinate.terminate()
+                try:
+                    _macos_caffeinate.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    _macos_caffeinate.kill()
+                    _macos_caffeinate.wait(timeout=1)
+                _macos_caffeinate = None
 
 
 def _check_posix_mutex(wait_time=5, gui=False):

@@ -28,6 +28,17 @@ class BaseInteraction:
     def send_key_up(self, key):
         pass
 
+    def send_key_combination(self, keys, down_time=.02):
+        held = []
+        try:
+            for key in keys:
+                self.send_key_down(key)
+                held.append(key)
+            time.sleep(down_time)
+        finally:
+            for key in reversed(held):
+                self.send_key_up(key)
+
     def move(self, x, y):
         pass
 

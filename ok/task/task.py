@@ -509,8 +509,17 @@ class ExecutorOperation:
 
     def send_key_up(self, key, after_sleep=0):
         key = self.validate_key(key)
-        self.executor.reset_scene()
         self.executor.interaction.send_key_up(key)
+        self.executor.reset_scene()
+        if after_sleep > 0:
+            self.sleep(after_sleep)
+
+    def send_key_combination(self, keys, down_time=.02, after_sleep=0):
+        if isinstance(keys, str) or not keys:
+            raise ValueError('Combination requires a non-empty sequence of keys')
+        keys = [self.validate_key(key) for key in keys]
+        self.executor.reset_scene()
+        self.executor.interaction.send_key_combination(keys, down_time)
         if after_sleep > 0:
             self.sleep(after_sleep)
 
