@@ -399,6 +399,14 @@ class ExecutorOperation:
     def move_relative(self, x, y):
         self.move(int(self.width * x), int(self.height * y))
 
+    def move_camera(self, dx, dy):
+        """Move the captured game's camera by relative pixel deltas."""
+        move = getattr(self.executor.interaction, 'move_relative_pixels', None)
+        if move is None:
+            raise NotImplementedError('Relative camera input is unavailable for this backend')
+        move(dx, dy)
+        self.executor.reset_scene()
+
     def move(self, x, y):
         self.executor.interaction.move(x, y)
         self.executor.reset_scene()
@@ -1353,6 +1361,8 @@ class BaseTask(OCR):
 
     def disable(self):
         self._enabled = False
+        if self.executor.current_task is self:
+            self.executor.release_input()
         self.executor.remove_onetime_task(self)
         self.executor._wake_executor()
         communicate.task.emit(self)

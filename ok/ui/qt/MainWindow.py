@@ -1,9 +1,10 @@
 import os
+import sys
 import threading
 
 import pyappify
 from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QScreen
+from PySide6.QtGui import QColor, QScreen, QPalette
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QApplication
 from qfluentwidgets import qconfig, FluentIcon, NavigationItemPosition, MessageBox, InfoBar, \
     InfoBarPosition, MessageBoxBase, FluentWindow, NavigationDisplayMode, isDarkTheme, Theme, \
@@ -221,7 +222,7 @@ class MainWindow(FluentWindow):
 
         # 添加计划任务Tab（不要求任务 visible，未显示在 GUI 的任务也可计划调度）
         any_support_schedule = any(task.support_schedule_task for task in self.executor.onetime_tasks)
-        if any_support_schedule:
+        if any_support_schedule and sys.platform == 'win32':
             from ok.ui.qt.tasks.ScheduleTaskTab import ScheduleTaskTab
             self.schedule_tab = ScheduleTaskTab(config=self.config)
             self.addSubInterface(self.schedule_tab, FluentIcon.CALENDAR, self.tr('Schedule'),
@@ -321,6 +322,8 @@ class MainWindow(FluentWindow):
     @staticmethod
     def _get_dwm_accent_color():
         """Return the DWM accent color as a compatibility fallback."""
+        if sys.platform != 'win32':
+            return QApplication.palette().color(QPalette.ColorRole.Highlight)
         try:
             import ctypes
             from ctypes import wintypes
@@ -345,6 +348,8 @@ class MainWindow(FluentWindow):
 
     def get_system_primary_theme_color(self):
         """Return a qfluent source color matching the Windows primary fill."""
+        if sys.platform != 'win32':
+            return self.get_system_accent_color()
         dark = isDarkTheme()
         try:
             from ok.rotypes.Windows.UI.ViewManagement import UIColorType, get_color_value

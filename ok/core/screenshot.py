@@ -46,10 +46,14 @@ class Screenshot:
             self.exit_event.bind_queue(self.task_queue)
             self.thread = threading.Thread(target=self._worker, name="screenshot")
             self.thread.start()
-            fonts_dir = os.path.join(os.environ['WINDIR'], 'Fonts')
-            font = find_first_existing_file(
-                ['msyh.ttc', 'msyh.ttf', 'simsun.ttf', 'simsun.ttc', 'arial.ttf', 'arial.ttc'], fonts_dir)
-            if os.path.exists(font):
+            if os.name == 'nt':
+                fonts_dir = os.path.join(os.environ['WINDIR'], 'Fonts')
+                font_names = ['msyh.ttc', 'msyh.ttf', 'simsun.ttf', 'simsun.ttc', 'arial.ttf', 'arial.ttc']
+            else:
+                fonts_dir = '/System/Library/Fonts'
+                font_names = ['PingFang.ttc', 'Supplemental/Arial Unicode.ttf', 'Supplemental/Arial.ttf']
+            font = find_first_existing_file(font_names, fonts_dir)
+            if font and os.path.exists(font):
                 logger.debug(f"load font {font}")
                 self.pil_font = ImageFont.truetype(font, 30)
             else:

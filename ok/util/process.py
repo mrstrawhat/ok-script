@@ -25,6 +25,7 @@ WINDOWS_START_METHOD_START = 'start'
 WINDOWS_START_METHOD_OS_STARTFILE = 'os.startfile'
 
 _mutex_handle = None
+_posix_mutex_file = None
 _mutex_owner_file = None
 _mutex_cleanup_registered = False
 _exit_watchdog_lock = threading.Lock()
@@ -263,7 +264,7 @@ def _terminate_previous_instances(owner_file, replace_console=False):
 
 
 def _release_mutex():
-    global _mutex_handle, _mutex_owner_file
+    global _mutex_handle, _mutex_owner_file, _posix_mutex_file
     if _mutex_handle:
         try:
             ctypes.windll.kernel32.CloseHandle(_mutex_handle)
@@ -276,6 +277,9 @@ def _release_mutex():
         except OSError:
             pass
     _mutex_owner_file = None
+    if _posix_mutex_file is not None:
+        _posix_mutex_file.close()
+        _posix_mutex_file = None
 
 
 def _retain_mutex(handle, owner_file, gui=False):
@@ -297,6 +301,8 @@ def _retain_mutex(handle, owner_file, gui=False):
 
 def check_mutex(wait_time=5, kill_wait_time=3, gui=False):
     """Acquire this project's instance lock, replacing its console owner for GUI startup."""
+    if sys.platform != 'win32':
+        return _check_posix_mutex(wait_time, gui)
     if _mutex_handle:
         return True
     _LPSECURITY_ATTRIBUTES = wintypes.LPVOID
@@ -762,4 +768,35 @@ def create_shortcut(exe_path=None, shortcut_name_post=None, description=None, ta
 
 def prevent_sleeping(yes=True):
     # Prevent the system from sleeping
-    ctypes.windll.kernel32.SetThreadExecutionState(0x80000002 if yes else 0x80000000)
+    if sys.platform == 'win32':
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000002 if yes else 0x80000000)
+
+
+def _check_posix_mutex(wait_time=5, gui=False):
+    """Use a real per-project advisory lock on macOS and other POSIX hosts."""
+    import fcntl
+    global _posix_mutex_file, _mutex_owner_file, _mutex_cleanup_registered
+    if _posix_mutex_file is not None:
+        return True
+    identity = hashlib.md5(os.path.realpath(os.getcwd()).encode()).hexdigest()
+    owner_file = os.path.join(tempfile.gettempdir(), f'ok-script-{identity}.pid')
+    lock = open(owner_file + '.lock', 'a+')
+    deadline = time.monotonic() + max(0, wait_time)
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                lock.close()
+                return False
+            time.sleep(.05)
+    _posix_mutex_file = lock
+    _mutex_owner_file = owner_file
+    with open(owner_file, 'w', encoding='ascii') as file:
+        json.dump({'pid': os.getpid(), 'create_time': psutil.Process().create_time(),
+                   'executable': sys.executable, 'mode': 'gui' if gui else 'console'}, file)
+    if not _mutex_cleanup_registered:
+        atexit.register(_release_mutex)
+        _mutex_cleanup_registered = True
+    return True

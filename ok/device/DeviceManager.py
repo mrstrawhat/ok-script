@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import sys
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -6,10 +9,12 @@ from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 
-from ok.device.capture import HwndWindow, BrowserCaptureMethod, update_capture_method, NemuIpcCaptureMethod, \
-    ADBCaptureMethod
-from ok.device.interaction import PostMessageInteraction, GenshinInteraction, ForegroundPostMessageInteraction, \
-    PynputInteraction, PyDirectInteraction, BrowserInteraction, ADBInteraction
+from ok.device.capture_methods.adb import ADBCaptureMethod
+from ok.device.interaction_methods.pynput import PynputInteraction
+if sys.platform == 'win32':
+    from ok.device.capture import HwndWindow, BrowserCaptureMethod, update_capture_method, NemuIpcCaptureMethod
+    from ok.device.interaction import (PostMessageInteraction, GenshinInteraction,
+        ForegroundPostMessageInteraction, PyDirectInteraction, BrowserInteraction, ADBInteraction)
 from ok.core.events import communicate
 from ok.util.collection import parse_ratio
 from ok.util.config import Config
@@ -60,6 +65,10 @@ class DeviceManager:
             'supported_resolution', {})
         self.supported_ratio = parse_ratio(supported_resolution.get('ratio'))
         self.windows_capture_config = app_config.get('windows')
+        self.macos_capture_config = app_config.get('macos') if sys.platform == 'darwin' else None
+        if self.macos_capture_config:
+            from ok.device.capture_methods.macos import MacOSCaptureMethod
+            MacOSCaptureMethod.prepare_session(gui=bool(app_config.get('gui')))
         self.adb_capture_config = app_config.get('adb')
         self.browser_config = app_config.get('browser')
         self.debug = app_config.get('debug')
@@ -67,7 +76,7 @@ class DeviceManager:
         self.device_dict = {}
         self.exit_event = exit_event
         self.resolution_dict = {}
-        default_capture = 'windows' if app_config.get('windows') else (
+        default_capture = 'macos' if self.macos_capture_config else 'windows' if app_config.get('windows') else (
             'browser' if app_config.get('browser') else 'adb')
         self.config = Config("devices",
                              {"preferred": "", "pc_full_path": "", 'capture': default_capture, 'selected_exe': '',
@@ -131,6 +140,8 @@ class DeviceManager:
 
     def close(self):
         """Stop capture resources before Qt/Python teardown begins."""
+        if self.interaction is not None:
+            self.interaction.on_destroy()
         hwnd_window = self.hwnd_window
         if hwnd_window is not None:
             hwnd_window.stop()
@@ -304,12 +315,32 @@ class DeviceManager:
                 "resolution": f"{width}x{height}"
             }
 
+    def update_macos_device(self):
+        if not self.macos_capture_config:
+            return
+        from ok.device.capture_methods.macos import MacOSCaptureMethod
+        from ok.task.exceptions import CaptureException
+        bundle = self.macos_capture_config['bundle_id']
+        key = f'macos:{bundle}'
+        record = {'imei': key, 'device': 'macos', 'address': bundle,
+                  'nick': self.macos_capture_config.get('name', bundle),
+                  'capture': 'macos', 'connected': False}
+        try:
+            window = MacOSCaptureMethod.discover_window(bundle)
+            record.update(connected=True, window_id=int(window.windowID()),
+                          nick=window.title() or record['nick'],
+                          pid=int(window.owningApplication().processID()))
+        except CaptureException as error:
+            logger.info(str(error))
+        self.device_dict[key] = record
+
     def do_refresh(self, current=False):
         try:
             self.refresh_emulators(current)
             self.refresh_phones(current)
             self.update_pc_device()
             self.update_browser_device()
+            self.update_macos_device()
         except Exception as e:
             logger.error('refresh error', e)
 
@@ -543,6 +574,8 @@ class DeviceManager:
         if not device:
             return []
         kind = device.get('device')
+        if kind == 'macos':
+            return ['macos']
         if kind == 'windows':
             configured = (self.windows_capture_config or {}).get('capture_method', [])
             methods = configured if isinstance(configured, list) else [configured]
@@ -567,6 +600,8 @@ class DeviceManager:
         if not device:
             return []
         kind = device.get('device')
+        if kind == 'macos':
+            return ['Pynput']
         if kind == 'windows':
             configured = (self.windows_capture_config or {}).get('interaction', [])
             methods = configured if isinstance(configured, list) else [configured]
@@ -592,6 +627,12 @@ class DeviceManager:
 
     def set_interaction(self, interaction):
         interaction_name = interaction.__name__ if isinstance(interaction, type) else interaction
+        if (self.get_preferred_device() or {}).get('device') == 'macos':
+            if interaction_name not in ('Pynput', 'PynputInteraction'):
+                raise ValueError('macOS supports foreground Pynput input only')
+            self.config['interaction'] = 'Pynput'
+            self.start()
+            return
         
         config_interaction = self.windows_capture_config.get('interaction') if self.windows_capture_config else None
         if isinstance(interaction, str):
@@ -648,6 +689,25 @@ class DeviceManager:
     def start(self):
         self.handler.post(self.do_start, remove_existing=True, skip_if_running=True)
 
+    def _macos_input_allowed(self):
+        if self.exit_event is not None and self.exit_event.is_set():
+            return False
+        executor = self.executor
+        if executor is None:
+            return True
+        job = executor.current_job
+        if job is not None and job.cancel_requested:
+            return False
+        if executor.paused and not (job is not None and job.ignore_pause):
+            return False
+        task = executor.current_task
+        return task is None or (task.enabled and not task.paused)
+
+    def _macos_focus_lost(self):
+        if self.executor is not None:
+            logger.warning('Mac game lost focus or changed window; pausing tasks')
+            self.executor.pause()
+
     def do_start(self, notify=True):
         logger.debug(f'do_start')
         preferred = self.get_preferred_device()
@@ -658,7 +718,33 @@ class DeviceManager:
                 communicate.adb_devices.emit(True)
             return
 
-        if preferred['device'] == 'windows':
+        if preferred['device'] == 'macos':
+            from ok.device.capture_methods.macos import MacOSCaptureMethod
+            from ok.device.interaction_methods.macos import MacOSInteraction
+            if not preferred.get('connected'):
+                if self.interaction is not None:
+                    self.interaction.on_destroy()
+                if self.capture_method is not None:
+                    self.capture_method.close()
+                self.capture_method = self.interaction = None
+            else:
+                if not isinstance(self.capture_method, MacOSCaptureMethod):
+                    if self.capture_method is not None:
+                        self.capture_method.close()
+                    self.capture_method = MacOSCaptureMethod(self.macos_capture_config['bundle_id'], self.exit_event)
+                else:
+                    self.capture_method.refresh_window()
+                if not isinstance(self.interaction, MacOSInteraction):
+                    if self.interaction is not None:
+                        self.interaction.on_destroy()
+                    self.interaction = MacOSInteraction(
+                        self.capture_method, allowed=self._macos_input_allowed,
+                        on_focus_lost=self._macos_focus_lost)
+                else:
+                    self.interaction.capture = self.capture_method
+                    self.interaction.hwnd_window = self.capture_method
+                preferred.update(resolution=f'{self.width}x{self.height}', width=self.width, height=self.height)
+        elif preferred['device'] == 'windows':
             title = self.windows_capture_config.get('title')
             exe = self.windows_capture_config.get('exe')
             if not exe and not title and preferred.get('real_hwnd'):
@@ -786,6 +872,10 @@ class DeviceManager:
 
     def device_connected(self):
         preferred = self.get_preferred_device()
+        if preferred is None:
+            return False
+        if preferred['device'] == 'macos':
+            return bool(preferred.get('connected') and self.capture_method and self.capture_method.connected())
         if preferred['device'] == 'windows' or preferred['device'] == 'browser':
             return True
         elif self.device is not None:

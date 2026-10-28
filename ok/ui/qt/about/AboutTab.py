@@ -27,14 +27,15 @@ class AboutTab(Tab):
         self.add_widget(self.version_card)
 
         self.update_card = None
-        if callable(getattr(pyappify_module, 'get_version_list', None)):
+        if (config.get('updates_enabled', True)
+                and callable(getattr(pyappify_module, 'get_version_list', None))):
             links = config.get('links') or {}
             self.update_card = UpdateCard(
                 config.get('version'), pyappify_module, self, exit_event=exit_event,
                 download_url=get_localized_app_config(links, 'download'),
             )
             self.add_card(self.tr("App update"), self.update_card)
-        else:
+        elif config.get('updates_enabled', True):
             logger.warning(
                 "pyappify.get_version_list is unavailable; update controls are disabled. "
                 f"Loaded module: {getattr(pyappify_module, '__file__', type(pyappify_module).__name__)!r}"

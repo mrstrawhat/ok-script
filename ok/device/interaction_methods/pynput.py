@@ -1,4 +1,5 @@
 import time
+import sys
 
 from ok.device.capture_methods.base import BaseCaptureMethod
 from ok.device.interaction_methods.base import BaseInteraction
@@ -33,7 +34,7 @@ class PynputInteraction(BaseInteraction):
         super().__init__(capture)
         self.hwnd_window = hwnd_window
         self.check_clickable = True
-        if not is_admin():
+        if sys.platform == 'win32' and not is_admin():
             logger.error(f"You must be an admin to use PynputInteraction")
 
     def clickable(self):

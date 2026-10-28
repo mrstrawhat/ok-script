@@ -42,6 +42,15 @@ def _open_or_focus(folder, item_name=None, item_path=None):
         f'item_path={str(item_path) if item_path is not None else None!r}, '
         f'platform={sys.platform!r}'
     )
+    if sys.platform == 'darwin':
+        import subprocess
+        arguments = ['/usr/bin/open']
+        if item_path is not None:
+            arguments.extend(['-R', str(item_path)])
+        else:
+            arguments.append(str(folder))
+        subprocess.Popen(arguments)
+        return True
     if sys.platform != 'win32':
         logger.warning('Windows Explorer is only available on Windows')
         return False

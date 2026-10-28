@@ -33,6 +33,9 @@ class StartTab(Tab):
         self.capture_list_row = -1
         self.start_card = StartCard(exit_event)
         self.add_widget(self.start_card)
+        if config.get('macos'):
+            from ok.ui.qt.start.MacPermissionsCard import MacPermissionsCard
+            self.add_card('macOS 权限', MacPermissionsCard())
 
         self.start_card.refresh_button.clicked.connect(self.refresh_clicked)
         self.start_card.capture_button.clicked.connect(self.capture)
@@ -113,6 +116,9 @@ class StartTab(Tab):
             self.overlay_switch, og.app.overlay_state()['boxes'])
         self.overlay_switch.checkedChanged.connect(self.on_overlay_boxes_toggled)
         self.debug_layout.addWidget(self.overlay_switch)
+        if not config.get('use_overlay', True):
+            self.overlay_switch.setEnabled(False)
+            self.overlay_switch.setToolTip(self.tr('Overlay is unavailable on this platform.'))
         self.debug_layout.addStretch(1)
 
         self.add_card(self.tr("Debug"), self.debug_widget)
@@ -137,6 +143,8 @@ class StartTab(Tab):
                     methods = [methods]
                 if methods and i < len(methods):
                     og.device_manager.set_interaction(methods[i])
+            elif device.get('device') == 'macos':
+                og.device_manager.set_interaction('Pynput')
             self.start_card.update_status()
 
     def on_overlay_boxes_toggled(self, checked):
@@ -301,6 +309,8 @@ class StartTab(Tab):
                     og.device_manager.set_capture("windows")
             elif device.get('device') == 'browser':
                 og.device_manager.set_capture("browser")
+            elif device.get('device') == 'macos':
+                og.device_manager.set_capture('macos')
             self.start_card.update_status()
 
     def device_index_changed(self):  # i is an index
@@ -329,6 +339,8 @@ class StartTab(Tab):
                 selected = row
             if device['device'] == "windows":
                 method = self.tr("PC")
+            elif device['device'] == 'macos':
+                method = self.tr('Mac')
             elif device.get('emulator'):
                 method = self.tr("Emulator")
             elif device['device'] == "browser":

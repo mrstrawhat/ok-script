@@ -1,8 +1,11 @@
 import time
+import sys
 
 from ok import Handler, og
 from ok import Logger
-from ok.device.capture import BaseWindowsCaptureMethod, BrowserCaptureMethod
+from ok.device.capture_methods.base import BaseWindowsCaptureMethod
+if sys.platform == 'win32':
+    from ok.device.capture_methods.browser import BrowserCaptureMethod
 from ok.core.events import communicate
 from ok.core.notifications import alert_error, alert_info
 from ok.util.process import is_admin, execute, WINDOWS_START_METHOD_START
@@ -56,6 +59,11 @@ class StartController:
             self.starting = False
 
     def _do_start(self, task=None, exit_after=False):
+        if self.config.get('macos'):
+            from ok.util.macos import permission_error
+            if error := permission_error():
+                communicate.starting_emulator.emit(True, error, 0)
+                return False
         if (owner := getattr(getattr(og, 'executor', None), 'exclusive_owner', None)) is not None:
             logger.info(f'do_start refused, executor held by {owner}')
             communicate.starting_emulator.emit(
@@ -324,18 +332,20 @@ class StartController:
     def check_device_error(self):
         try:
             device = og.device_manager.get_preferred_device()
+            if not device:
+                return self.tr('No game selected!')
             error_msg = self.tr("{} is not connected, please select the game window.").format(
                 device['nick'])
             logger.info(f'test check_device_error msg: {error_msg}')
-            if not device:
-                return self.tr('No game selected!')
+            if device['device'] == 'macos' and not device.get('connected'):
+                return error_msg
             if og.device_manager.capture_method is None:
                 return self.tr("Selected capture method is not supported by the game or your system!")
             if not og.device_manager.device_connected():
                 logger.error(f'Emulator is not connected {og.device_manager.device}')
                 return self.tr("Emulator is not connected, start the emulator first!")
-            if isinstance(og.device_manager.capture_method,
-                          BrowserCaptureMethod) and not og.device_manager.capture_method.connected():
+            if (sys.platform == 'win32' and isinstance(og.device_manager.capture_method,
+                          BrowserCaptureMethod) and not og.device_manager.capture_method.connected()):
                 logger.info(f"start browser")
                 og.device_manager.capture_method.start_browser()
             if not og.device_manager.capture_method.connected():

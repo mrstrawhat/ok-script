@@ -7,15 +7,16 @@ import sys
 import time
 
 import psutil
-import win32api
-import win32con
-import win32gui
-import win32process
+if sys.platform == 'win32':
+    import win32api
+    import win32con
+    import win32gui
+    import win32process
 
 from ok.util.logger import Logger
 
 MDT_EFFECTIVE_DPI = 0
-user32 = ctypes.WinDLL('user32', use_last_error=True)
+user32 = ctypes.WinDLL('user32', use_last_error=True) if sys.platform == 'win32' else None
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 WGC_NO_BORDER_MIN_BUILD = 20348
 WGC_MIN_BUILD = 19041

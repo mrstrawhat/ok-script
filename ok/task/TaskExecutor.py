@@ -274,7 +274,7 @@ class TaskExecutor:
         return (snapshot[0].copy(), snapshot[1]) if snapshot is not None else None
 
     def check_frame_and_resolution(self, supported_ratio, min_size, time_out=8.0):
-        if supported_ratio is None or min_size is None:
+        if supported_ratio is None and min_size is None:
             return True, '0x0'
         logger.info(f'start check_frame_and_resolution')
         self.device_manager.update_resolution_for_hwnd()
@@ -293,10 +293,11 @@ class TaskExecutor:
             actual_ratio = 0
         else:
             actual_ratio = width / height
-        supported_ratio = ratio_text_to_number(supported_ratio)
-        # Calculate the difference between the actual and supported ratios
-        difference = abs(actual_ratio - supported_ratio)
-        support = difference <= 0.01 * supported_ratio
+        support = True
+        if supported_ratio is not None:
+            supported_ratio = ratio_text_to_number(supported_ratio)
+            difference = abs(actual_ratio - supported_ratio)
+            support = difference <= 0.01 * supported_ratio
         if not support:
             logger.error(f'resolution error {width}x{height} {frame is None}')
         if not support and frame is not None:
@@ -476,8 +477,11 @@ class TaskExecutor:
         if task is not None:
             if self.current_task != task:
                 raise Exception(f"Can only pause current task {self.current_task}")
+            task._paused = True
+            self.release_input()
         elif not self.paused:
             self.paused = True
+            self.release_input()
             self._wake_executor()
             communicate.executor_paused.emit(self.paused)
             self.reset_scene(check_enabled=False)
@@ -488,6 +492,12 @@ class TaskExecutor:
         if task := self.current_task:
             task.disable()
             task.unpause()
+
+    def release_input(self):
+        interaction = self.interaction
+        release = getattr(interaction, 'release_all', None)
+        if release is not None:
+            release()
 
     def _start_thread_locked(self):
         if self.thread is None:
@@ -545,6 +555,8 @@ class TaskExecutor:
         if job.future.done():
             return False
         job._cancel_requested.set()
+        if self.current_job is job:
+            self.release_input()
         self._wake_executor()
         return True
 
@@ -625,6 +637,7 @@ class TaskExecutor:
         else:
             job.future.set_result(result)
         finally:
+            self.release_input()
             self.current_job = None
             self.reset_scene(check_enabled=False)
         logger.info(f'end {job}, cost: {time.time() - start:.2f}s')
@@ -861,11 +874,14 @@ class TaskExecutor:
                     communicate.screenshot.emit(self.frame, name, True, None)
                 self.current_task = None
                 communicate.task.emit(None)
+            finally:
+                self.release_input()
         self.destroy()
 
     def stop(self):
         logger.info('stop')
         self.exit_event.set()
+        self.release_input()
         self._wake_executor()
 
     def destroy(self):

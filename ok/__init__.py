@@ -716,16 +716,16 @@ class OK:
         register_notifications(self.global_config)
         og.global_config = self.global_config
         og.set_use_dml()
-        try:
-            import ctypes
-            # Set DPI Awareness (Windows 10 and 8)
-            errorCode = ctypes.windll.shcore.SetProcessDpiAwareness(2)
-            logger.info(f'SetProcessDpiAwareness {errorCode}')
-            if self.debug:
-                import win32api
-                win32api.SetConsoleCtrlHandler(self.console_handler, True)
-        except Exception as e:
-            logger.error(f'SetProcessDpiAwareness error', e)
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                errorCode = ctypes.windll.shcore.SetProcessDpiAwareness(2)
+                logger.info(f'SetProcessDpiAwareness {errorCode}')
+                if self.debug:
+                    import win32api
+                    win32api.SetConsoleCtrlHandler(self.console_handler, True)
+            except Exception as e:
+                logger.error(f'SetProcessDpiAwareness error', e)
         self.config = config
         try:
             self.do_init()
@@ -1070,7 +1070,8 @@ class OK:
                                           default_threshold=template_matching.get('default_threshold', 0.8),
                                           feature_processor=template_matching.get('feature_processor'),
                                           hcenter_features=template_matching.get('hcenter_features'),
-                                          vcenter_features=template_matching.get('vcenter_features'))
+                                          vcenter_features=template_matching.get('vcenter_features'),
+                                          feature_scales=template_matching.get('feature_scales'))
         ocr_target_height = 0
         if ocr := self.config.get('ocr'):
             isascii, path = install_path_isascii()
@@ -1214,6 +1215,9 @@ class OkGlobals:
         logger.info(f'app path {self.app_path}')
 
     def set_use_dml(self):
+        if sys.platform != 'win32':
+            self.use_dml = False
+            return
         from ok.util.process import get_first_gpu_free_memory_mib
 
         use_dml_txt_option = self.global_config.get_config('Basic Options').get('Use DirectML')

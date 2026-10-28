@@ -3,7 +3,9 @@ from ok.notification.ppocr import NotificationPPOCR
 from ok.notification.providers import (
     DiscordProvider, QQBotProvider, SmtpProvider, TelegramBotProvider,
     WeComWebhookProvider)
-from ok.notification.windows_messenger import MessengerAutomation
+import sys
+if sys.platform == 'win32':
+    from ok.notification.windows_messenger import MessengerAutomation
 from ok.util.GlobalConfig import (
     DISCORD_NOTIFICATION_ENABLED, DISCORD_WEBHOOK, NOTIFICATION_OPTION_NAME,
     QQ_NICKNAME, QQ_NOTIFICATION_ENABLED, SYSTEM_NOTIFICATION_ENABLED,
@@ -103,6 +105,9 @@ class NotificationManager:
                             None, title, message, images)
         if self.pipeline.stop_event.is_set():
             return False
+        if sys.platform != 'win32' and (self.config.get(QQ_NOTIFICATION_ENABLED)
+                                        or self.config.get(WECHAT_NOTIFICATION_ENABLED)):
+            raise NotImplementedError('QQ/WeChat desktop notifications require Windows')
         if self.config.get(QQ_NOTIFICATION_ENABLED):
             self._safe_send('QQ', MessengerAutomation(
                 ('QQ.exe',), self.ocr, exit_event=self.pipeline.stop_event,

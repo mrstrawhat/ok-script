@@ -70,7 +70,8 @@ class FeatureSet:
 
     def __init__(self, debug, coco_json: str, default_horizontal_variance,
                  default_vertical_variance, default_threshold=0.95, feature_processor=None,
-                 hcenter_features: list = None, vcenter_features: list = None) -> None:
+                 hcenter_features: list = None, vcenter_features: list = None,
+                 feature_scales: dict = None) -> None:
         self.coco_json = get_path_relative_to_exe(coco_json)
         self.debug = debug
         self.feature_dict = {}
@@ -79,6 +80,10 @@ class FeatureSet:
         self.feature_processor = feature_processor
         self.hcenter_features = hcenter_features if hcenter_features is not None else []
         self.vcenter_features = vcenter_features if vcenter_features is not None else []
+        self.feature_scales = feature_scales or {}
+        for factors in self.feature_scales.values():
+            if not factors or any(not math.isfinite(f) or not 0 < f <= 1 for f in factors):
+                raise ValueError('Feature scales must be finite values in (0, 1]')
         self._processed_images = set()
 
         logger.debug(f'Loading features from {self.coco_json}')
@@ -333,9 +338,24 @@ class FeatureSet:
             elif search_area.ndim == 2 and template.ndim == 3:
                 search_area = cv2.cvtColor(search_area, cv2.COLOR_GRAY2BGR)
 
-        result = cv2.matchTemplate(search_area, template, match_method,
-                                   mask=mask)
-        np.nan_to_num(result, copy=False, nan=0, posinf=0, neginf=0)
+        factors = self.feature_scales.get(category_name, (1,)) if feature is not None else (1,)
+        best = None
+        for factor in factors:
+            candidate = template if factor == 1 else cv2.resize(template, None, fx=factor, fy=factor)
+            candidate_mask = mask
+            if mask is not None and factor != 1:
+                candidate_mask = cv2.resize(mask, (candidate.shape[1], candidate.shape[0]),
+                                           interpolation=cv2.INTER_NEAREST)
+            candidate_result = cv2.matchTemplate(search_area, candidate, match_method, mask=candidate_mask)
+            np.nan_to_num(candidate_result, copy=False, nan=0, posinf=0, neginf=0)
+            score = float(candidate_result.max())
+            if match_method in (cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED):
+                score = -float(candidate_result.min())
+            if best is None or score > best[0]:
+                best = score, candidate_result, candidate, factor
+        _, result, template, factor = best
+        feature_width = max(1, round(feature_width * factor))
+        feature_height = max(1, round(feature_height * factor))
         match_time = time.time()
 
         if screenshot:

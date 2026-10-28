@@ -1,6 +1,9 @@
-from ctypes import windll, wintypes
+import sys
+if sys.platform == 'win32':
+    from ctypes import windll, wintypes
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QShortcut, QKeySequence
 from _ctypes import byref
 from qfluentwidgets import FluentIcon, PrimaryPushButton, SettingCard, PushButton
 
@@ -16,6 +19,7 @@ logger = Logger.get_logger(__name__)
 class StartCard(SettingCard):
     show_choose_hwnd = Signal()
     hotkey_changed = Signal()
+    hotkey_pressed = Signal()
 
     def __init__(self, exit_event):
         super().__init__(og.config.get('gui_icon'), og.app.title, og.app.version)
@@ -51,7 +55,18 @@ class StartCard(SettingCard):
 
         self.handler = Handler(exit_event, "StartCard")
         self.current_hotkey = "UNINIT"
-        self.handler.post(self.check_hotkey, 0.1)
+        self.qt_shortcut = None
+        self.hotkey_listener = None
+        self.hotkey_pressed.connect(self.clicked)
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().aboutToQuit.connect(self.stop_native_hotkey)
+        if sys.platform == 'win32':
+            self.handler.post(self.check_hotkey, 0.1)
+        else:
+            self.hotkey_timer = QTimer(self)
+            self.hotkey_timer.timeout.connect(self.check_hotkey)
+            self.hotkey_timer.start(100)
+            self.start_button.setToolTip(self.tr('Shortcut works while this application is active.'))
         logger.debug('basic_options.start/stop: {}'.format(self.basic_options.get('Start/Stop')))
 
     def status_clicked(self):
@@ -126,16 +141,42 @@ class StartCard(SettingCard):
             self.current_hotkey = new_hotkey
             self.hotkey_changed.emit()
 
-        msg = wintypes.MSG()
-        if windll.user32.PeekMessageW(byref(msg), None, 0, 0, 1):
-            if msg.message == 0x0312:  # WM_HOTKEY
-                logger.debug(f'hotkey pressed {msg}')
-                if msg.wParam == 999:
-                    self.clicked()
+        if sys.platform == 'win32':
+            msg = wintypes.MSG()
+            if windll.user32.PeekMessageW(byref(msg), None, 0, 0, 1):
+                if msg.message == 0x0312:  # WM_HOTKEY
+                    logger.debug(f'hotkey pressed {msg}')
+                    if msg.wParam == 999:
+                        self.clicked()
 
-        self.handler.post(self.check_hotkey, 0.1)
+            self.handler.post(self.check_hotkey, 0.1)
 
     def rebind_hotkey(self, hotkey):
+        if sys.platform != 'win32':
+            self.stop_native_hotkey()
+            if self.qt_shortcut is not None:
+                self.qt_shortcut.setEnabled(False)
+                self.qt_shortcut.deleteLater()
+                self.qt_shortcut = None
+            if hotkey and hotkey != 'None':
+                self.qt_shortcut = QShortcut(QKeySequence(hotkey), self)
+                self.qt_shortcut.setContext(Qt.ApplicationShortcut)
+                self.qt_shortcut.activated.connect(self.clicked)
+            if sys.platform == 'darwin' and hotkey and hotkey.lower() in ('f9', 'f10', 'f11', 'f12'):
+                from ok.util.macos import permission_status
+                if permission_status()['listen_events']:
+                    try:
+                        from pynput.keyboard import GlobalHotKeys
+                        self.hotkey_listener = GlobalHotKeys({
+                            f'<{hotkey.lower()}>': self.hotkey_pressed.emit})
+                        self.hotkey_listener.start()
+                        # Prevent the local and global handlers from toggling twice.
+                        self.qt_shortcut.setEnabled(False)
+                        self.start_button.setToolTip(self.tr('Global shortcut; losing game focus also releases held input.'))
+                    except Exception as error:
+                        logger.error('Could not register macOS global shortcut', error)
+                        self.stop_native_hotkey()
+            return
         windll.user32.UnregisterHotKey(None, 999)
         vk_map = {'F9': 0x78, 'F10': 0x79, 'F11': 0x7A, 'F12': 0x7B}
 
@@ -144,3 +185,8 @@ class StartCard(SettingCard):
                 logger.error(f"Failed to register hotkey {hotkey}")
         else:
             logger.debug(f"Hotkey disabled or invalid: {hotkey}")
+
+    def stop_native_hotkey(self):
+        if self.hotkey_listener is not None:
+            self.hotkey_listener.stop()
+            self.hotkey_listener = None

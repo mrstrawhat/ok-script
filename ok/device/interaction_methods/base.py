@@ -51,3 +51,7 @@ class BaseInteraction:
 
     def on_destroy(self):
         pass
+
+    def release_all(self):
+        """Release inputs owned by this interaction, if the backend tracks them."""
+        pass
