@@ -41,7 +41,9 @@ def test_http_connection_and_tools_end_to_end(development, mode, monkeypatch):
     assert discovered[0]['token'] == connection['token']
 
     async def exercise():
-        async with httpx2.AsyncClient() as http:
+        # These requests exercise the local server's Host checks, not a
+        # machine-wide proxy which can reject the deliberately invalid Host.
+        async with httpx2.AsyncClient(trust_env=False) as http:
             assert (await http.post(connection['url'])).status_code == 401
             headers = {'Authorization': f"Bearer {connection['token']}",
                        'Content-Type': 'application/json', 'Origin': 'https://untrusted.example'}
@@ -49,7 +51,7 @@ def test_http_connection_and_tools_end_to_end(development, mode, monkeypatch):
             headers.pop('Origin')
             headers['Host'] = 'untrusted.example'
             assert (await http.post(connection['url'], headers=headers, json={})).status_code == 421
-        async with httpx2.AsyncClient(headers={'Authorization': f"Bearer {connection['token']}"}) as http:
+        async with httpx2.AsyncClient(trust_env=False, headers={'Authorization': f"Bearer {connection['token']}"}) as http:
             transport = streamable_http_client(connection['url'], http_client=http)
             async with Client(transport, mode=mode) as client:
                 listing = await client.list_tools()

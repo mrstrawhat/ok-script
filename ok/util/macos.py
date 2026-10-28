@@ -3,10 +3,11 @@ import platform
 
 
 def permission_status():
+    import ApplicationServices
     import Quartz
     return {
         'screen_recording': bool(Quartz.CGPreflightScreenCaptureAccess()),
-        'accessibility': bool(Quartz.AXIsProcessTrusted()),
+        'accessibility': bool(ApplicationServices.AXIsProcessTrusted()),
         'post_events': bool(Quartz.CGPreflightPostEventAccess()),
         'listen_events': bool(Quartz.CGPreflightListenEventAccess()),
     }
