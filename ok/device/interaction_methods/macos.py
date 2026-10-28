@@ -11,6 +11,8 @@ logger = Logger.get_logger(__name__)
 
 
 class MacOSInteraction(PynputInteraction):
+    refresh_frame_on_run = True
+
     def __init__(self, capture, hwnd_window=None, *, allowed=None, on_focus_lost=None,
                  keyboard_controller=None, mouse_controller=None, monitor=True):
         super().__init__(capture, hwnd_window or capture)

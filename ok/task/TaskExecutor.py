@@ -783,7 +783,8 @@ class TaskExecutor:
         """
         if not is_trigger_task and self.interaction is not None:
             self.interaction.on_run()
-            self.reset_scene(check_enabled=False)
+            if getattr(self.interaction, 'refresh_frame_on_run', False):
+                self.reset_scene(check_enabled=False)
 
     def execute(self):
         logger.info(f"start execute")

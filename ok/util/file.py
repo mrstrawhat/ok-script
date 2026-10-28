@@ -40,6 +40,8 @@ def get_path_relative_to_exe(*files):
         if file is None:
             return
     frozen = getattr(sys, 'frozen', False)
+    if frozen and sys.platform == 'darwin' and hasattr(sys, '_MEIPASS'):
+        return os.path.normpath(os.path.join(sys._MEIPASS, *files))
     if frozen:
         # The application is running as a bundled executable
         application_path = os.path.abspath(sys.executable)

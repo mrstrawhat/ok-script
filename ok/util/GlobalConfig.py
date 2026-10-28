@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 
 from ok.core.icons import Icon
@@ -186,6 +187,12 @@ def create_notification_options():
         SMTP_DEFAULT_SENDER: 'Sender email address',
         SMTP_DEFAULT_RECIPIENT: 'Recipient email address(es), comma-separated',
     }
+    if sys.platform != 'win32':
+        for key in (QQ_NOTIFICATION_ENABLED, QQ_NICKNAME, WECHAT_NOTIFICATION_ENABLED, WECHAT_NICKNAME):
+            default.pop(key, None)
+            config_type.pop(key, None)
+            descriptions.pop(key, None)
+        descriptions[SYSTEM_NOTIFICATION_ENABLED] = 'Show desktop notifications'
     return ConfigOption(
         NOTIFICATION_OPTION_NAME,
         default,
