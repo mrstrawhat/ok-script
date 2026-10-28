@@ -403,6 +403,42 @@ class TestCodeRunner(ExecutorJobTestCase):
 
         self.assertEqual('a\nb\n', ''.join(chunks))
 
+    def test_direct_stdout_and_stderr_writes_are_captured(self):
+        result = self.session.run(
+            'import sys\nsys.stdout.write("direct-out")\nsys.stderr.write("direct-err")', timeout=WAIT)
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual('direct-outdirect-err', result.output)
+
+    def test_stream_identity_does_not_change_inside_or_between_jobs(self):
+        # A child may still use stdout after its parent job has returned.
+        original = sys.stdout
+        for _ in range(2):
+            result = self.session.run('id(__import__("sys").stdout)', timeout=WAIT)
+            self.assertEqual(id(original), result.raw)
+            self.assertIs(original, sys.stdout)
+
+    def test_child_output_after_job_does_not_reuse_finished_capture(self):
+        release, done = threading.Event(), threading.Event()
+
+        def late_output():
+            try:
+                if release.wait(WAIT):
+                    sys.stdout.write('outside after job\n')
+            finally:
+                done.set()
+
+        child = threading.Thread(target=late_output)
+        try:
+            result = wait_result(code_runner.submit_call(self.executor, child.start), WAIT)
+            release.set()
+            self.assertTrue(done.wait(WAIT))
+            self.assertTrue(result.ok, result.error)
+            self.assertNotIn('outside after job', result.output)
+        finally:
+            release.set()
+            if child.ident is not None:
+                child.join(WAIT)
+
     def test_error_traceback_shows_source_line(self):
         result = self.session.run('a = 1\nraise_here = 1 / 0', timeout=WAIT)
 

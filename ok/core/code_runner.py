@@ -49,6 +49,7 @@ class _ThreadRoutingStream:
     def __init__(self, original):
         self.original = original
         self.sinks = {}
+        self._write_lock = threading.RLock()
 
     def write(self, text):
         sink = self.sinks.get(threading.get_ident())
@@ -57,11 +58,13 @@ class _ThreadRoutingStream:
             return len(text)
         if self.original is None:
             return len(text)
-        return self.original.write(text)
+        with self._write_lock:
+            return self.original.write(text)
 
     def flush(self):
         if self.original is not None:
-            self.original.flush()
+            with self._write_lock:
+                self.original.flush()
 
     def __getattr__(self, name):
         return getattr(self.original, name)
@@ -83,19 +86,34 @@ class _ThreadLogHandler(logging.Handler):
             self.handleError(record)
 
 
-@contextmanager
-def capture_output(sink):
-    """Send the calling thread's print() output and ``ok`` log records to ``sink``."""
-    thread_id = threading.get_ident()
-    streams = []
+def _install_output_routing():
+    """Keep stream identities stable while jobs and their child threads run.
+
+    Installing/removing proxies on the executor thread used to race with a
+    child's print() and the host's output capture. A router stays installed;
+    only its thread-local destinations change between jobs. Hosts may replace
+    sys streams (for example, a new pytest capture), so rebind at submission.
+    """
     with _capture_lock:
+        streams = []
         for name in ('stdout', 'stderr'):
             stream = getattr(sys, name)
             if not isinstance(stream, _ThreadRoutingStream):
                 stream = _ThreadRoutingStream(stream)
                 setattr(sys, name, stream)
+            streams.append(stream)
+        return streams
+
+
+@contextmanager
+def capture_output(sink):
+    """Send the calling thread's stdout/stderr and ``ok`` logs to ``sink``."""
+    thread_id = threading.get_ident()
+    streams = _install_output_routing()
+    with _capture_lock:
+        previous = [stream.sinks.get(thread_id) for stream in streams]
+        for stream in streams:
             stream.sinks[thread_id] = sink
-            streams.append((name, stream))
     handler = _ThreadLogHandler(thread_id, sink)
     ok_logger = logging.getLogger('ok')
     ok_logger.addHandler(handler)
@@ -104,10 +122,11 @@ def capture_output(sink):
     finally:
         ok_logger.removeHandler(handler)
         with _capture_lock:
-            for name, stream in streams:
-                stream.sinks.pop(thread_id, None)
-                if not stream.sinks and getattr(sys, name) is stream:
-                    setattr(sys, name, stream.original)
+            for stream, old_sink in zip(streams, previous):
+                if old_sink is None:
+                    stream.sinks.pop(thread_id, None)
+                else:
+                    stream.sinks[thread_id] = old_sink
 
 
 def _safe_repr(value):
@@ -124,6 +143,8 @@ def submit_call(executor, fn, name=None, owner=None, capture=None, interaction=N
     become ``RunResult.error`` instead of failing the future. ``on_output`` is
     called on the executor thread with each chunk of output as it is written.
     """
+
+    _install_output_routing()
 
     def run():
         chunks = []
@@ -194,6 +215,7 @@ class CodeSession:
     """
 
     def __init__(self, executor, owner=None, extra=None):
+        _install_output_routing()
         self.executor = executor
         self.owner = owner
         self._extra = dict(extra or {})
