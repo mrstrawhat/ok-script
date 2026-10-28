@@ -12,6 +12,10 @@ from ok.device.capture_methods.base import BaseCaptureMethod
 from ok.task.exceptions import CaptureException, CaptureBusyException
 
 
+class _FrameNotReady(CaptureException):
+    """A transient native failure or incomplete frame, safe to retry once."""
+
+
 def _completed(start, timeout=5):
     result = []
     start(lambda value, error: result.append((value, error)))
@@ -23,6 +27,9 @@ def _completed(start, timeout=5):
         raise CaptureException('macOS capture timed out')
     value, error = result[0]
     if error is not None:
+        if (error.domain() == 'com.apple.ScreenCaptureKit.SCStreamErrorDomain'
+                and error.code() == -3811):
+            raise _FrameNotReady(str(error))
         raise CaptureException(str(error))
     return value
 
@@ -132,24 +139,49 @@ class MacOSCaptureMethod(BaseCaptureMethod):
             self._capture_lock.release()
 
     def _capture_frame(self):
+        # A failed screenshot must invalidate coordinates from the old frame.
+        self._last_frame_geometry = None
+        for attempt in range(2):
+            if self.exit_event.is_set():
+                raise CaptureException('macOS capture cancelled')
+            try:
+                return self._capture_frame_once()
+            except _FrameNotReady:
+                if attempt == 1:
+                    raise
+                if self.exit_event.wait(.1):
+                    raise CaptureException('macOS capture cancelled')
+                self.refresh_window()
+
+    def _capture_frame_once(self):
         if not self.connected() or not self._geometry_matches():
             self.refresh_window()
         config = SC.SCStreamConfiguration.alloc().init()
         rect = self.filter.contentRect()
         scale = self.filter.pointPixelScale()
-        config.setWidth_(round(rect.size.width * scale))
-        config.setHeight_(round(rect.size.height * scale))
+        expected_size = (round(rect.size.width * scale), round(rect.size.height * scale))
+        if min(expected_size) <= 0:
+            raise _FrameNotReady('macOS window has no drawable content yet')
+        config.setWidth_(expected_size[0])
+        config.setHeight_(expected_size[1])
         config.setShowsCursor_(False)
         config.setIgnoreShadowsSingleWindow_(True)
         config.setIncludeChildWindows_(False)
         image = _completed(lambda callback:
             SC.SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_(
                 self.filter, config, callback))
+        if (image is None or
+                (Quartz.CGImageGetWidth(image), Quartz.CGImageGetHeight(image)) != expected_size):
+            raise _FrameNotReady('macOS screenshot dimensions do not match the selected window')
         bitmap = AppKit.NSBitmapImageRep.alloc().initWithCGImage_(image)
         data = bitmap.representationUsingType_properties_(AppKit.NSBitmapImageFileTypePNG, {})
         frame = cv2.imdecode(np.frombuffer(bytes(data), dtype=np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise CaptureException('Could not decode macOS screenshot')
+        if (frame.shape[1], frame.shape[0]) != expected_size:
+            raise _FrameNotReady('Decoded macOS screenshot dimensions do not match the selected window')
+        if not np.any(frame):
+            raise _FrameNotReady('macOS screenshot is entirely black; waiting for drawable content')
         if not self._geometry_matches():
             raise CaptureException('Game window moved during capture; retry with a new frame')
         self._size = (frame.shape[1], frame.shape[0])

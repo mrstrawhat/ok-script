@@ -502,7 +502,18 @@ class MainWindow(FluentWindow):
         self.activateWindow()
         if self.windowHandle():
             self.windowHandle().requestActivate()
-        if os.name == 'nt':
+        if sys.platform == 'darwin':
+            try:
+                import AppKit
+                # Qt's window activation alone may leave the macOS process
+                # inactive and its newly shown window without rendered content.
+                # Activate only this tool, never a selected capture target.
+                application = AppKit.NSRunningApplication.currentApplication()
+                if not application.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps):
+                    logger.debug('bring_to_front macOS application activation was declined')
+            except Exception as e:
+                logger.debug(f'bring_to_front native activation failed: {e}')
+        elif os.name == 'nt':
             try:
                 import win32con
                 import win32gui
