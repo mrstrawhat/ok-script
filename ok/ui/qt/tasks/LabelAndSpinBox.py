@@ -1,4 +1,4 @@
-from qfluentwidgets import SpinBox
+from ok.ui.qt.widget.ConfigSpinBox import ConfigSpinBox
 
 from ok.ui.qt.common.design_system import DesignToken
 from ok.ui.qt.tasks.ConfigLabelAndWidget import ConfigLabelAndWidget
@@ -9,7 +9,7 @@ class LabelAndSpinBox(ConfigLabelAndWidget):
     def __init__(self, config_desc, config, key: str, config_type=None):
         super().__init__(config_desc, config, key)
         self.key = key
-        self.spin_box = SpinBox()
+        self.spin_box = ConfigSpinBox()
         default_value = config.get_default(key)
         if isinstance(config_type, dict) and 'min' in config_type:
             range_min = config_type['min']

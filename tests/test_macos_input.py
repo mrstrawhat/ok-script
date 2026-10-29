@@ -48,6 +48,25 @@ def test_hold_releases_when_executor_cancels(native):
     assert native.keyboard.events == [('down', 'w'), ('up', 'w')]
 
 
+@pytest.mark.parametrize('digit,vk', [('1', 18), ('2', 19), ('3', 20), ('4', 21),
+                                    ('5', 23), ('6', 22), ('7', 26), ('8', 28),
+                                    ('9', 25), ('0', 29)])
+def test_game_digits_press_number_row_and_release_same_key(native, digit, vk):
+    native._parse_key = MacOSInteraction._parse_key.__get__(native)
+    native.send_key(digit, 0)
+    down, up = native.keyboard.events
+    assert down[0] == 'down' and down[1].vk == vk
+    assert up == ('up', down[1])
+    assert not native._keys
+
+
+def test_number_row_fix_preserves_named_keys_and_letters(native):
+    from pynput.keyboard import Key
+    native._parse_key = MacOSInteraction._parse_key.__get__(native)
+    assert native._parse_key('f2') == Key.f2
+    assert native._parse_key('w') == 'w'
+
+
 def test_key_up_still_releases_after_focus_is_lost(native):
     native.send_key_down('w')
     native.capture.is_foreground = lambda: False

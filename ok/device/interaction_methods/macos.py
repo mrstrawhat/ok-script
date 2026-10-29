@@ -12,6 +12,16 @@ logger = Logger.get_logger(__name__)
 
 class MacOSInteraction(PynputInteraction):
     refresh_frame_on_run = True
+    # pynput's reverse layout map overwrites top-row digits with keypad keys.
+    # Games bind party slots to ANSI number-row key codes, not keypad digits.
+    _NUMBER_ROW_KEYS = {'1': 18, '2': 19, '3': 20, '4': 21, '5': 23,
+                        '6': 22, '7': 26, '8': 28, '9': 25, '0': 29}
+
+    def _parse_key(self, key):
+        if isinstance(key, str) and key in self._NUMBER_ROW_KEYS:
+            from pynput.keyboard import KeyCode
+            return KeyCode.from_vk(self._NUMBER_ROW_KEYS[key])
+        return super()._parse_key(key)
 
     def __init__(self, capture, hwnd_window=None, *, allowed=None, on_focus_lost=None,
                  keyboard_controller=None, mouse_controller=None, monitor=True):
