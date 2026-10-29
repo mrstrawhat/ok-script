@@ -190,3 +190,32 @@ def test_window_movement_retries_with_fresh_geometry(capture, native_frame):
     assert np.array_equal(frame, native_frame.frame)
     capture.refresh_window.assert_called_once_with()
     assert capture._last_frame_geometry == capture._geometry()
+
+
+def test_client_frame_excludes_title_bar_and_maps_input_to_content(capture, native_frame):
+    capture._content_top = 4  # points; the fixture is 2x Retina
+    capture.frame_points = SimpleNamespace(origin=SimpleNamespace(x=10, y=20),
+                                          size=SimpleNamespace(width=50, height=40))
+    frame = capture._capture_frame()
+    assert frame.shape == (72, 100, 3)
+    assert capture.get_abs_cords(0, 0) == (10, 24)
+    assert capture.get_abs_cords(50, 36) == (35, 42)
+
+
+@pytest.mark.parametrize('fullscreen,title,expected', [(False, True, 32), (True, True, 0), (False, False, 0)])
+def test_native_client_area_matches_window_and_ignores_sharing_overlay(capture, monkeypatch, fullscreen, title, expected):
+    def rect(x, y, w, h):
+        return {'AXPosition': SimpleNamespace(x=x, y=y), 'AXSize': SimpleNamespace(width=w, height=h)}
+    window = rect(100, 200, 756, 523)
+    window['AXFullScreen'] = fullscreen
+    if title:
+        window['AXTitleUIElement'] = rect(180, 208, 37, 16)
+    app = {'AXWindows': [rect(105, 205, 68, 22), window]}
+    ax = SimpleNamespace(AXUIElementCreateApplication=lambda pid: app,
+        AXUIElementCopyAttributeValue=lambda e, n, _: (0, e[n]) if n in e else (-25205, None),
+        AXValueGetValue=lambda v, t, _: (True, v), kAXValueCGPointType=1, kAXValueCGSizeType=2)
+    monkeypatch.setitem(sys.modules, 'ApplicationServices', ax)
+    capture.frame_points = SimpleNamespace(origin=SimpleNamespace(x=100, y=200),
+                                          size=SimpleNamespace(width=756, height=523))
+    capture.window = SimpleNamespace(owningApplication=lambda: SimpleNamespace(processID=lambda: 10))
+    assert capture._title_bar_height() == expected

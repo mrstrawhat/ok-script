@@ -739,7 +739,9 @@ class DeviceManager:
                 if not isinstance(self.capture_method, MacOSCaptureMethod):
                     if self.capture_method is not None:
                         self.capture_method.close()
-                    self.capture_method = MacOSCaptureMethod(self.macos_capture_config['bundle_id'], self.exit_event)
+                    self.capture_method = MacOSCaptureMethod(
+                        self.macos_capture_config['bundle_id'], self.exit_event,
+                        **({'client_area': True} if self.macos_capture_config.get('client_area') else {}))
                 else:
                     self.capture_method.refresh_window()
                 if not isinstance(self.interaction, MacOSInteraction):

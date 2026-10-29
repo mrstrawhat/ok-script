@@ -149,3 +149,13 @@ def test_no_input_when_foreground_or_geometry_check_fails(native):
     with pytest.raises(TaskDisabledException):
         native.mouse_down(10, 10)
     assert native.mouse.events == []
+
+
+def test_cancel_while_pointer_settles_never_presses_a_button(native):
+    def cancelled(duration):
+        raise TaskDisabledException()
+    native._wait = cancelled
+    with pytest.raises(TaskDisabledException):
+        native.click(100, 50)
+    assert native.mouse.events == []
+    assert not native._buttons

@@ -164,6 +164,9 @@ class MacOSInteraction(PynputInteraction):
             self._check()
             if x != -1 and y != -1:
                 self.move(x, y)
+                # UE updates its pointer hit-test on a later frame. Pressing
+                # in the same tick can drag the map from the old pointer.
+                self._wait(.05)
             button = self.get_mouse_button(key)
             self._buttons.add(button)
             try:

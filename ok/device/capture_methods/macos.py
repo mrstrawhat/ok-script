@@ -37,10 +37,12 @@ def _completed(start, timeout=5):
 class MacOSCaptureMethod(BaseCaptureMethod):
     name = 'macOS ScreenCaptureKit'
 
-    def __init__(self, bundle_id, exit_event=None):
+    def __init__(self, bundle_id, exit_event=None, client_area=False):
         super().__init__()
         self.exit_event = exit_event or threading.Event()
         self.bundle_id = bundle_id
+        self.client_area = client_area
+        self._content_top = 0
         self._capture_lock = threading.RLock()
         self._last_frame_geometry = None
         self.prepare_session()
@@ -79,12 +81,56 @@ class MacOSCaptureMethod(BaseCaptureMethod):
         self.filter = SC.SCContentFilter.alloc().initWithDesktopIndependentWindow_(self.window)
         self.frame_points = self.window.frame()
         rect, scale = self.filter.contentRect(), self.filter.pointPixelScale()
-        self._size = (round(rect.size.width * scale), round(rect.size.height * scale))
+        self._content_top = self._title_bar_height() if self.client_area else 0
+        self._size = (round(rect.size.width * scale),
+                      round(rect.size.height * scale) - round(self._content_top * scale))
+
+    def _title_bar_height(self):
+        """Find the native title bar from its centered AX title, in points.
+
+        Fullscreen/borderless windows have no native title to exclude. Match
+        the outer bounds because AXWindows can also contain sharing overlays.
+        """
+        import ApplicationServices as AX
+
+        def value(element, name):
+            error, result = AX.AXUIElementCopyAttributeValue(element, name, None)
+            return result if error == 0 else None
+
+        def geometry(element):
+            position, size = value(element, 'AXPosition'), value(element, 'AXSize')
+            if position is None or size is None:
+                return None
+            ok_pos, pos = AX.AXValueGetValue(position, AX.kAXValueCGPointType, None)
+            ok_size, dim = AX.AXValueGetValue(size, AX.kAXValueCGSizeType, None)
+            return (pos.x, pos.y, dim.width, dim.height) if ok_pos and ok_size else None
+
+        app = AX.AXUIElementCreateApplication(self.window.owningApplication().processID())
+        outer = self.frame_points
+        expected = (outer.origin.x, outer.origin.y, outer.size.width, outer.size.height)
+        for window in value(app, 'AXWindows') or []:
+            bounds = geometry(window)
+            if bounds is None or any(abs(a - b) > .5 for a, b in zip(bounds, expected)):
+                continue
+            if value(window, 'AXFullScreen'):
+                return 0
+            title = value(window, 'AXTitleUIElement')
+            if title is None:
+                return 0
+            title_bounds = geometry(title)
+            if title_bounds:
+                top = title_bounds[1] - outer.origin.y
+                height = 2 * top + title_bounds[3]
+                if 0 <= top and 0 < height < min(100, outer.size.height / 4):
+                    return height
+            break
+        raise CaptureException('Cannot determine the game client area; check accessibility permission')
 
     def _geometry(self):
         rect = self.frame_points
         return (self.window.windowID(), self.window.owningApplication().processID(),
-                rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, self._size)
+                rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, self._size,
+                getattr(self, '_content_top', 0))
 
     def connected(self):
         windows = Quartz.CGWindowListCopyWindowInfo(
@@ -184,6 +230,9 @@ class MacOSCaptureMethod(BaseCaptureMethod):
             raise _FrameNotReady('macOS screenshot is entirely black; waiting for drawable content')
         if not self._geometry_matches():
             raise _FrameNotReady('Game window moved during capture; retry with a new frame')
+        content_top = round(getattr(self, '_content_top', 0) * scale)
+        if content_top:
+            frame = frame[content_top:].copy()
         self._size = (frame.shape[1], frame.shape[0])
         self._last_frame_geometry = self._geometry()
         return frame
@@ -195,5 +244,6 @@ class MacOSCaptureMethod(BaseCaptureMethod):
         if not (0 <= x < self.width and 0 <= y < self.height):
             raise CaptureException(f'Input outside game content: {x}, {y}')
         rect = self.frame_points
+        top = getattr(self, '_content_top', 0)
         return (rect.origin.x + x * rect.size.width / self.width,
-                rect.origin.y + y * rect.size.height / self.height)
+                rect.origin.y + top + y * (rect.size.height - top) / self.height)
